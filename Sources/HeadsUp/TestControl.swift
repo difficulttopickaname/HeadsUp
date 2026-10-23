@@ -257,6 +257,7 @@ final class TestControl {
             "drawnIDs": Array(m.sampleMemory.drawn).sorted(),
             "pinchLog": pinchLog,
             "viewRadiusKm": m.viewRadiusKm ?? NSNull(),
+            "isInteracting": m.isInteracting,
             "viewCenter": m.viewCenter.map { [$0.latitude, $0.longitude] } ?? NSNull(),
             "hasRouteKey": !m.routeKey(for: m.settings.routeProvider).isEmpty,
             "liveRouteError": m.liveRouteError?.localizedDescription ?? NSNull(),

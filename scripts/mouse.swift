@@ -1,5 +1,6 @@
 // Posts real mouse events (test helper). Coordinates are global, top-left origin, in points.
 // mouse drag x1 y1 x2 y2 | cmddrag x1 y1 x2 y2 (⌘ held) | click x y | rightclick x y | move x y
+// mouse scroll x y delta [count] | scrollpixels x y delta [count] (positive delta zooms in)
 import CoreGraphics
 import Foundation
 import ApplicationServices
@@ -21,6 +22,20 @@ case "click":
     post(.mouseMoved, p(2)); usleep(150_000); post(.leftMouseDown, p(2)); usleep(60_000); post(.leftMouseUp, p(2))
 case "rightclick":
     post(.mouseMoved, p(2)); usleep(150_000); post(.rightMouseDown, p(2), .right); usleep(60_000); post(.rightMouseUp, p(2), .right)
+case "scroll", "scrollpixels":
+    guard a.count >= 5, let delta = Int32(a[4]) else { exit(1) }
+    let count = a.count > 5 ? Int(a[5]) ?? 1 : 1
+    guard count > 0 else { exit(1) }
+    let point = p(2)
+    post(.mouseMoved, point); usleep(150_000)
+    for _ in 0..<count {
+        guard let event = CGEvent(scrollWheelEvent2Source: nil,
+                                  units: a[1] == "scrollpixels" ? .pixel : .line,
+                                  wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0) else { continue }
+        event.location = point
+        event.post(tap: .cghidEventTap)
+        usleep(16_000)
+    }
 case "cmddrag", "drag":
     if a[1] == "cmddrag" { flags = .maskCommand }
     let s = p(2), e = p(4)

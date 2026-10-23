@@ -87,7 +87,7 @@ struct PanelView: View {
     }
 
     private func requestTerrain(side: CGFloat) {
-        // While a pinch or drag is under way the current map image is just moved and scaled;
+        // While a pinch, scroll or drag is under way the current map image is just moved and scaled;
         // the terrain is recomputed once, when the gesture ends.
         guard model.settings.mapLook == .paper, !model.isInteracting, let c = model.displayCenter else { return }
         model.terrain.request(center: c, radiusKm: model.displayRadius,
