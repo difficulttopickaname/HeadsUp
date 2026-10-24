@@ -46,7 +46,13 @@ build/hctl dump /tmp/headsup-pixels-in.json
 
 提交后应有 `isInteracting == false`、`trackerRadiusKm == displayRadiusKm`、`trackerCenter == displayCenter`；放大后的 `displayRadiusKm` 应小于之前（已在 2 km 下限除外）。`viewRadiusKm` 是可空的覆盖值，重置后应为空，实际半径用 `displayRadiusKm` 检查。`dumpTime` 可检查文件新鲜度，`lastScrollMarker` 标记最后收到的测试事件；纸感地图的飞机 `point` 使用当前平移中心和缩放半径，标准／卫星地图不猜测屏幕坐标。
 
-## 测试结果
+## 本次自动化验证
+
+提交 `7803204` 的 [macOS CI](https://github.com/difficulttopickaname/HeadsUp/actions/runs/40045386199) 已通过：`swift test` 共 53 项测试、0 失败（其中新增 14 项滚轮与交互测试），release 构建成功，两个测试工具编译成功，`hctl` 请求匹配、等待新 dump 写入和错误退出的回归检查通过。真实鼠标和触控板手感尚未实机验证。
+
+## 既有版本测试记录
+
+以下保留原仓库的测试记录；新增滚轮与同步协议测试的执行结果以对应提交的 GitHub Actions 为准，实机手感仍需按上面的步骤验证。
 
 单元测试（`swift test`）：39 项全部通过，覆盖坐标计算与 GCJ-02 换算、两种数据源 JSON 解析（含 `"ground"` 高度、TIS-B 地址、垃圾响应）、航位推算、半径精确筛选与半径变更、数据源切换与限流冷却、离线/HTTP 错误状态与过期数据清除、空域计数、航司过滤解析与匹配、航线合理性判断、设置默认值（20 km）与持久化、地形瓦片覆盖、等高线间距、水面渲染、高程 PNG 解码、矢量瓦片几何与图层解码（跳过泳池、隧道，只保留国界和一级行政区界、跳过海上界线）、河流绘制、AeroAPI / AirLabs 响应解析与航班选择、Key 无效时回退、OpenStreetMap 地点解析与去重合并、大范围分块查询的覆盖与合并、数据源轮换、短暂缺失的飞机保留、短暂限流不报错。
 
