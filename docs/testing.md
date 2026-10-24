@@ -6,34 +6,45 @@
 swift test
 ```
 
+`HeadsUpTests` 包含滚轮倍率与边界、合并事件一致性、无效输入、延迟提交、旧回调取消、滚轮切换拖动／捏合、重置／关闭开关／修改半径、滚轮事件确认和当前视图坐标导出的自动化测试。延迟提交测试使用可控制的等待器，不靠固定 sleep 猜时序；航班查询暂停，不请求定位或网络数据。
+
+GitHub Actions 的 `Swift tests` 工作流在 macOS 上运行完整测试、release 构建，以及测试工具编译和 `hctl` 确认协议回归。仅运行交互测试可用 `swift test --filter 'ScrollZoomTests|MapInteractionTests'`。
+
 ## 测试钩子
 
-`scripts/run_test_instance.sh` 和 `build/hctl` 用于自动化测试：以 `HEADSUP_TEST_CONTROL=1` 启动时，应用接受截图、导出状态、改半径等命令；正常启动时这个钩子不开启。
+`scripts/run_test_instance.sh` 和 `build/hctl` 用于自动化测试：以 `HEADSUP_TEST_CONTROL=1` 启动时，应用接受截图、导出状态、改半径等命令；正常启动时这个钩子不开启。`hctl` 等待对应请求的处理确认（`quit` 除外），10 秒超时或处理失败时返回非零；`dump` 原子写入完成后才确认，写入失败会返回错误，避免读到上一次的文件。
 
 ## 鼠标滚轮与拖动回归检查
 
-以下是新增滚轮支持的待执行检查，尚未计入下方已有测试结果。需要 macOS 14+、Xcode 命令行工具和实际鼠标；Windows 环境不能构建或运行 AppKit / SwiftUI 应用。
+以下为实机检查，不能由单元测试或事件注入替代。需要 macOS 14+、Xcode 命令行工具和实际鼠标／触控板；Windows 环境不能构建或运行 AppKit / SwiftUI 应用。
 
 1. 运行 `swift test` 和 `./scripts/build_app.sh`，启动应用，设置一个手动位置并打开"允许拖动和缩放地图"。
 2. 分别在纸感、标准、卫星底图上向上／向下滚动，确认放大／缩小，飞机和原点距离圈保持地理位置对应。悬停飞机和标签时也应能缩放。
-3. 连续滚动后停止，确认地图和航班范围完成更新；一直放大／缩小不超过 2–1200 公里。分别验证普通刻度滚轮和高精度滚动，并在系统"自然滚动"开、关时检查鼠标滚轮方向一致。
+3. 连续滚动后停止，确认地图和航班范围完成更新；一直放大／缩小不超过 2–1200 公里。分别验证普通刻度滚轮和触控板双指上下滑动：快速大幅滚动应比小幅滚动缩放更多，不再被单次事件上限截断。系统"自然滚动"开、关时鼠标滚轮方向应一致。
 4. 滚动后立即拖动空白处，确认平移过程中地形不会因先前滚轮的延迟回调而重绘；松开后更新当前视图内的航班。按住 ⌘ 拖动仍应只移动面板。
 5. 滚动后立即点击定位按钮、修改追踪半径或关闭地图交互，等待一秒，确认视图不会恢复旧缩放、地形仍能正常刷新。关闭开关后滚轮不改变地图，拖动空白处仍移动面板。
 6. 检查触控板捏合、飞机点击、右键菜单、右下角调整面板大小，以及设置窗口里的滚动仍正常。
 
-也可通过现有测试实例发送真实系统滚轮事件（需授予辅助功能权限；坐标使用屏幕左上角为原点的点坐标）：
+也可通过测试实例发送真实系统滚轮事件（需授予辅助功能权限；坐标使用屏幕左上角为原点的点坐标）。先启动测试实例，在设置中选好位置并打开地图交互。`--wait` 给最后一个事件加唯一标记，等应用确实处理该事件且交互结束后才返回；即使命令通知先于鼠标事件到达，也不会把先前的空闲状态误判成完成。测试开关未启用、事件未送达或交互未结束时会超时失败。
 
 ```bash
+set -e
 swiftc scripts/mouse.swift -o build/mouse
 swiftc scripts/hctl.swift -o build/hctl
-# 替换 X、Y 为面板内坐标；滚动事件的 delta 为正时放大，为负时缩小。
-build/mouse scroll X Y 1 20
-build/mouse scroll X Y -1 20
-build/mouse scrollpixels X Y 10 20
-build/hctl dump /tmp/headsup-scroll.json
+swift scripts/test_hctl.swift build/hctl
+# 替换 X、Y 为面板内的屏幕坐标。每一种操作后单独导出，避免反向滚动掩盖结果。
+build/hctl dump /tmp/headsup-before.json
+build/mouse scroll X Y 1 3 --wait
+build/hctl dump /tmp/headsup-wheel-in.json
+build/mouse scroll X Y -1 3 --wait
+build/hctl dump /tmp/headsup-wheel-out.json
+build/mouse scrollpixels X Y 10 3 --wait
+build/hctl dump /tmp/headsup-pixels-in.json
 ```
 
-测试钩子的状态导出新增 `isInteracting`。滚动结束后应为 `false`，且 `trackerRadiusKm` 与 `viewRadiusKm` 一致；点定位按钮或关闭交互后 `viewRadiusKm` 应为空，`trackerRadiusKm` 回到设置半径。
+不加 `--wait` 时 `mouse` 只保证事件已发出，可用于紧接着发送拖动／重置的交错测试；不能据此断言缩放已经提交。`dump` 是即时快照，确认仅表示新文件已写完，不会主动结束交互；须在 `mouse --wait` 成功后读取才能检查提交结果。确认不代表航班网络查询或地形渲染已经完成。
+
+提交后应有 `isInteracting == false`、`trackerRadiusKm == displayRadiusKm`、`trackerCenter == displayCenter`；放大后的 `displayRadiusKm` 应小于之前（已在 2 km 下限除外）。`viewRadiusKm` 是可空的覆盖值，重置后应为空，实际半径用 `displayRadiusKm` 检查。`dumpTime` 可检查文件新鲜度，`lastScrollMarker` 标记最后收到的测试事件；纸感地图的飞机 `point` 使用当前平移中心和缩放半径，标准／卫星地图不猜测屏幕坐标。
 
 ## 测试结果
 

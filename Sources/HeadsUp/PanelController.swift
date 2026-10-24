@@ -70,6 +70,7 @@ final class PanelController: NSObject, NSWindowDelegate {
                 // Wheel-up always zooms in, regardless of the system's natural-scrolling setting.
                 let delta = Double(event.scrollingDeltaY) * (event.isDirectionInvertedFromDevice ? -1 : 1)
                 self.model.scrollZoom(by: delta, precise: event.hasPreciseScrollingDeltas)
+                if TestLog.enabled { TestControl.noteScroll(event) }
                 return nil
             }
             let ended = event.phase.contains(.ended) || event.phase.contains(.cancelled)

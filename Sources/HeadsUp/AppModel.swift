@@ -44,16 +44,21 @@ final class AppModel: ObservableObject {
     private var iataCache: [String: [String]] = [:]
     private var filterTask: Task<Void, Never>?
     private var scrollZoomTask: Task<Void, Never>?
+    private let waitForScrollEnd: @MainActor () async throws -> Void
 
     private var gcjProbe: Bool?
     private var probing = false
     private var bag = Set<AnyCancellable>()
 
-    init(settings: SettingsStore, location: LocationService, tracker: FlightTracker, routes: RouteService) {
+    init(settings: SettingsStore, location: LocationService, tracker: FlightTracker, routes: RouteService,
+         waitForScrollEnd: @escaping @MainActor () async throws -> Void = {
+             try await Task.sleep(for: .milliseconds(180))
+         }) {
         self.settings = settings
         self.location = location
         self.tracker = tracker
         self.routes = routes
+        self.waitForScrollEnd = waitForScrollEnd
 
         settings.$radiusKm.removeDuplicates().sink { [weak self] r in
             // A new tracking radius replaces any zoomed view.
@@ -185,33 +190,33 @@ final class AppModel: ObservableObject {
 
     /// Moves the view while dragging; aircraft are re-queried for the new area when the drag ends.
     func pan(to c: Coordinate, final: Bool) {
-        // Commit a pending wheel zoom before dragging; its delayed completion must not end the pan.
-        if scrollZoomTask != nil {
-            cancelScrollZoom()
-            tracker.radiusKm = displayRadius
-        }
+        // A pan takes over a pending wheel zoom. Commit both center and radius when it ends,
+        // without querying the old center or letting a stale wheel callback end the pan.
+        cancelScrollZoom()
         viewCenter = c
         isInteracting = !final
-        if final { tracker.center = c }
+        if final { commitView() }
     }
 
     /// Zooms the view; aircraft are re-queried for the new extent when the interaction ends.
     func zoom(to radius: Double, final: Bool) {
+        guard radius.isFinite else { return }
         cancelScrollZoom()
         let r = min(max(radius, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
         viewRadiusKm = r
         isInteracting = !final
-        if final { tracker.radiusKm = r }
+        if final { commitView() }
     }
 
     /// Wheel events usually have no ended phase. Refresh once after a short pause instead of
     /// rebuilding the terrain and querying aircraft for every notch (or high-resolution pixel).
     func scrollZoom(by delta: Double, precise: Bool) {
-        guard settings.mapDragEnabled, displayCenter != nil, delta.isFinite, delta != 0 else { return }
-        let step = max(-0.2, min(0.2, delta * (precise ? 0.002 : 0.06)))
-        zoom(to: displayRadius * exp(-step), final: false)
-        scrollZoomTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(180)) }
+        guard settings.mapDragEnabled, displayCenter != nil,
+              let radius = ScrollZoom.radius(from: displayRadius, delta: delta, precise: precise,
+                                             range: Self.zoomRange) else { return }
+        zoom(to: radius, final: false)
+        scrollZoomTask = Task { [weak self, waitForScrollEnd] in
+            do { try await waitForScrollEnd() }
             catch { return }
             guard !Task.isCancelled, let self else { return }
             self.scrollZoomTask = nil
@@ -222,6 +227,11 @@ final class AppModel: ObservableObject {
     private func cancelScrollZoom() {
         scrollZoomTask?.cancel()
         scrollZoomTask = nil
+    }
+
+    private func commitView() {
+        tracker.radiusKm = displayRadius
+        tracker.center = displayCenter
     }
 
     /// Returns the view to the origin (the user's or the manually set location) and the default zoom.
